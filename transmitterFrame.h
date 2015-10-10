@@ -62,11 +62,12 @@ public:
         return o;
     }
 
+    int getBytesLength() { return 1 + 1 + 1 + this->length + 1 + 4; }
+
     void printBytes() {
         char * buffer = this->toBytes();
         for(int j = 0; buffer[j] != 0; j++)
             printf("%02X ", buffer[j]);
-        printf("\n");
     }
 
 };

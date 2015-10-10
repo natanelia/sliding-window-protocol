@@ -11,6 +11,8 @@
 #include <fcntl.h>
 #include <pthread.h>
 #include "dcomm.h"
+#include "transmitterFrame.h"
+#include <stdio.h>
 
 #define BUFSIZE 2
 
@@ -53,7 +55,7 @@ int main(int argc, char *argv[])
 	}
 
 
-    memset((char *)&myaddr, 0, sizeof(myaddr));
+   /* memset((char *)&myaddr, 0, sizeof(myaddr));
     myaddr.sin_family = AF_INET;
     myaddr.sin_addr.s_addr = htonl(INADDR_ANY);
     myaddr.sin_port = htons(0);
@@ -61,7 +63,7 @@ int main(int argc, char *argv[])
     if (bind(fd, (struct sockaddr *)&myaddr, sizeof(myaddr)) < 0) {
         perror("bind failed");
         return 0;
-    }       
+    }       */
 
 	// mendefinisikan address tujuan pengiriman
 	memset((char *) &remaddr, 0, sizeof(remaddr));
@@ -91,10 +93,15 @@ int main(int argc, char *argv[])
 				}
 				cout << "XONN diterima." << endl;
 			}
-            char sendBuf[1];
-            sendBuf[0] = inputChar;
-			if (sendto(fd, sendBuf, 1, 0, (struct sockaddr *)&remaddr, addrlen) >= 0)
-				cout << "Mengirim byte ke-" << ++c << ": ‘" << inputChar << "’" << endl;
+            TransmitterFrame tf(5);
+            tf.setData(&inputChar, 1);
+			if (sendto(fd, tf.toBytes(), tf.getBytesLength(), 0, (struct sockaddr *)&remaddr, addrlen) >= 0)
+                if (inputChar != '\n')
+                    printf("Mengirim packet ke-%02d: '%c' { ", ++c, inputChar);
+                else
+                    printf("Mengirim packet ke-%02d: '\\n' { ", ++c);
+                tf.printBytes();
+                printf("}\n");
 		}
 
 
