@@ -18,7 +18,8 @@ using namespace std;
 
 //Variable Global
 char sign[128];
-char* contents[1000];
+char contents[1000][128];
+char word[128];
 vector<TransmitterFrame> buffer;
 vector<TransmitterFrame> window;
 int neffFTP = 0, neffContents = 0, idxContents = 0, clientSocket;
@@ -56,7 +57,7 @@ void configureSetting(char IP[], int portNum) {
 }
 
 void fillBuffer() {
-	for (int i = 0; i < BUFFER_SIZE && i < neffContents; i++) {
+	for (int i = 0; i < BUFFER_SIZE && idxContents < neffContents; i++) {
 		TransmitterFrame temp(i);
 		temp.setData(contents[idxContents], strlen(contents[idxContents]));
 		buffer.push_back(temp);
@@ -67,13 +68,23 @@ void fillBuffer() {
 // Membaca dari file dan mengirimkan paket kepada receiver
 void readFileAndStore(char * NAMA_FILE) {
 	ifstream fin(NAMA_FILE);
-    char ch, word[128];
+    char ch;
+	for (int i = 0; i < 128; i++) {
+		word[i] = 0;
+	}
+    for (int j = 0; j < 1000; j++) {
+		for (int i = 0; i < 128; i++) {
+			contents[j][i] = 0;
+		}
+	}
+
     int nMsg = 0;
 	fin >> noskipws >> ch;
 	while (!fin.eof()) {
-		sleep(1);
-		if (ch == ' ' && ch=='\n' && ch=='\t' && ch=='\r') {
-			contents[neffContents] = word;
+		if (ch == ' ' || ch=='\n' || ch=='\t' || ch=='\v' || ch=='\f' || ch=='\r') {
+			for (int i = 0; i < nMsg; i++) {
+				contents[neffContents][i] = word[i];
+			}
 			neffContents++;
 			//reset word
 			for (int i = 0; i < 128; i++) {
@@ -83,11 +94,13 @@ void readFileAndStore(char * NAMA_FILE) {
 		} else {
 			word[nMsg++] = ch;
 		}
-		fin >> noskipws >>ch;
+		fin >> noskipws >> ch;
 	}
 	//masukin ke array pengiriman
-	if (!(ch == ' ' && ch=='\n' && ch=='\t' && ch=='\r')) {
-		contents[neffContents] = word;
+	if (!(ch == ' ' || ch=='\n' || ch=='\t' || ch=='\v' || ch=='\f' || ch=='\r')) {
+		for (int i = 0; i < nMsg; i++) {
+			contents[neffContents][i] = ch;
+		}
 		neffContents++;
 	}
 }
@@ -101,6 +114,8 @@ void sendSingleFrame(int clientSocket, TransmitterFrame frame) {
 
 void sendMultipleFrame() {
 	for (int i = 0; i < WINDOW_SIZE; i++) {
+
+		buffer[0].printBytes();
 		window.push_back(buffer[0]);
 		buffer.erase(buffer.begin());
 	}
@@ -128,15 +143,12 @@ int main(int argc, char* argv[]) {
 
     // Membuat UDP socket
     clientSocket = socket(PF_INET, SOCK_DGRAM, 0);
-
     cout << "Membuat socket untuk koneksi ke " << argv[1] << ":" << portNum << endl;
     configureSetting(argv[1], portNum);
-
     
     // Inisialisasi ukuran variabel yang akan digunakan
     addr_size = sizeof serverAddr;  
 	pthread_create(&childThread, NULL, childCodes, NULL);
-
     readFileAndStore(NAMA_FILE);
     for (int i=0; i<neffContents; i=i+BUFFER_SIZE) {
     	fillBuffer();
