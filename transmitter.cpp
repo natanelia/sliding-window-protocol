@@ -9,17 +9,19 @@
 #include <iostream>
 #include <fstream>
 #include <stdlib.h>
-#include <thread>
+#include "dcomm.h"
 #include "transmitterFrame.h"
-
-#define WINDOW_SIZE 5
+#include "receiverFrame.h"
+#include <vector>
 
 using namespace std;
 
-
-
 //Variable Global
-char sign[5];
+char sign[128];
+char* contents[1000];
+vector<TransmitterFrame> buffer;
+vector<TransmitterFrame> window;
+int neffFTP = 0, neffContents = 0, idxContents = 0, clientSocket;
 struct sockaddr_in serverAddr;
 struct sockaddr_storage serverStorage;
 socklen_t addr_size;
@@ -28,26 +30,21 @@ socklen_t addr_size;
 void recvSign(int clientSocket) {
   while(1) {
     recvfrom(clientSocket,sign,5,0,NULL, NULL);
-    if(strcmp(sign,"XOFF") == 0) {
-      cout << "XOFF diterima" << endl;
-      while(strcmp(sign,"XOFF") == 0) {
-        recvfrom(clientSocket,sign,5,0,NULL, NULL);
-      }
-      cout << "XON diterima" << endl;
-    } 
+    ReceiverFrame frame(sign); 
+    neffFTP++;
+    if(frame.isError()) {
+    	cout << "ERROR " << frame.getFrameNumber() << endl;
+    } else if(frame.getAck() == ACK) {
+    	window.erase(buffer.begin()+ (frame.getFrameNumber() - '0'));
+     	cout << "ACK " << frame.getFrameNumber() << endl;
+    } else if (frame.getAck() == NAK) {
+    	cout << "NAK " << frame.getFrameNumber() << endl;
+    }
   }
 }
 
-// Mengirim pesan kepada receiver
-void sendMsg(int clientSocket, char* ch) {
-	int n, nBytes;
-  	printf("%s\n", ch);
-  	TransmitterFrame frame(1);
-	frame.setData(ch, 4);
-	frame.printBytes();
-	char* msg = frame.toBytes();
-	int msgLength = frame.getBytesLength(); 
-	sendto(clientSocket,msg,msgLength,0,(struct sockaddr *)&serverAddr,addr_size);  	
+void *childCodes(void *threadArgs) {
+	recvSign(clientSocket);
 }
 
 // Melakukan konfigurasi koneksi berdasarkan port dan IP tertentu
@@ -58,31 +55,73 @@ void configureSetting(char IP[], int portNum) {
 	  memset(serverAddr.sin_zero, '\0', sizeof serverAddr.sin_zero);  
 }
 
-void rcvSign(socket) {
-	while(true) {
-		// Tunggu acknya
-		// kalo timeout kirim lagi paketnya 
-		// kalo keterimanya NAK, kirim lagi sesuai nomor buffer melalui sendFrame
+void fillBuffer() {
+	for (int i = 0; i < BUFFER_SIZE && i < neffContents; i++) {
+		TransmitterFrame temp(i);
+		temp.setData(contents[idxContents], strlen(contents[idxContents]));
+		buffer.push_back(temp);
+		idxContents++;
 	}
 }
 
-void sendFrame(socket)  {
-	while (true) {
-		// kalo data sudah habis, break
-		// Ambil data sebanyak WINDOW_SIZE
-		// send semua data tersebut
-		// tunggu respon dari rcvsign apakah semuanya uda di ack atau belum
-		// respon juga bisa berbentuk rcvSign minta sendframe ngirim frame lagi
+// Membaca dari file dan mengirimkan paket kepada receiver
+void readFileAndStore(char * NAMA_FILE) {
+	ifstream fin(NAMA_FILE);
+    char ch, word[128];
+    int nMsg = 0;
+	fin >> noskipws >> ch;
+	while (!fin.eof()) {
+		sleep(1);
+		if (ch == ' ' && ch=='\n' && ch=='\t' && ch=='\r') {
+			contents[neffContents] = word;
+			neffContents++;
+			//reset word
+			for (int i = 0; i < 128; i++) {
+				word[i] = 0;
+			}
+			nMsg = 0;
+		} else {
+			word[nMsg++] = ch;
+		}
+		fin >> noskipws >>ch;
+	}
+	//masukin ke array pengiriman
+	if (!(ch == ' ' && ch=='\n' && ch=='\t' && ch=='\r')) {
+		contents[neffContents] = word;
+		neffContents++;
 	}
 }
 
+// Mengirim pesan kepada receiver
+void sendSingleFrame(int clientSocket, TransmitterFrame frame) {
+	char* msg = frame.toBytes();
+	int msgLength = frame.getBytesLength(); 
+	sendto(clientSocket,msg,msgLength,0,(struct sockaddr *)&serverAddr,addr_size);  	
+}
+
+void sendMultipleFrame() {
+	for (int i = 0; i < WINDOW_SIZE; i++) {
+		window.push_back(buffer[0]);
+		buffer.erase(buffer.begin());
+	}
+
+	//ngurus timeout buat resend
+	while (window.size() > 0) {
+		for (int i = 0; i < window.size(); i++) {
+			sendSingleFrame(clientSocket, window[i]);
+		}
+		sleep(ACK_TIMEOUT);
+	}
+}
 
 int main(int argc, char* argv[]) {
   if (argc != 4) {
     cout << "Usage : ./transmitter <IP address> <port number> <file name>" << endl;
   } else {
-    int clientSocket, portNum;
-    string NAMA_FILE;
+    int portNum;
+    char * NAMA_FILE;
+
+    pthread_t childThread;
 
     portNum = atoi(argv[2]);
     NAMA_FILE = argv[3];
@@ -92,24 +131,17 @@ int main(int argc, char* argv[]) {
 
     cout << "Membuat socket untuk koneksi ke " << argv[1] << ":" << portNum << endl;
     configureSetting(argv[1], portNum);
+
     
     // Inisialisasi ukuran variabel yang akan digunakan
     addr_size = sizeof serverAddr;  
+	pthread_create(&childThread, NULL, childCodes, NULL);
 
-    thread th1(rcvSign, clientSocket);
-    thread th2(sendFrame, clientSocket);
-
-
-    char msg[100];
-    // pake string 
-    msg[0] = 'H';
-    msg[1] = 'a';
-    msg[2] = 'l';
-    msg[3] = 'o';
-
-    sendMsg(clientSocket,msg);
-    th1.join();
-    th2.join();
+    readFileAndStore(NAMA_FILE);
+    for (int i=0; i<neffContents; i=i+BUFFER_SIZE) {
+    	fillBuffer();
+    	sendMultipleFrame();
+    }
   }
 
   return 0;

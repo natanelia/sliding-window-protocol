@@ -9,18 +9,41 @@ class ReceiverFrame {
 private:
     char ack;
     char frameNumber;
+    bool error;
 
 public:
     ReceiverFrame(int frameNumber) {
         this->frameNumber = frameNumber;
+        this->error = false;
     }
 
     ReceiverFrame(char * frame) {
+        this->error = false;
         //// SETTING ACK
         this->setAck(frame[0]);
 
         ////SETTING FRAME NUMBER
         this->setFrameNumber(frame[1]);
+
+        if (!this->error) {
+            char checksum[5];
+            for (int i = 1 + 1 /* after ETX */; i < 1 + 1 + 5; i++) {
+                checksum[i - 2] = frame[i];
+            }
+
+            char * framex = this->toBytes();
+            char trueChecksum[5];
+            for (int i = 1 + 1 /* after ETX */; i < 1 + 1 + 5; i++) {
+                trueChecksum[i - 2] = framex[i];
+            }
+
+            //check equality    
+            for (int i = 0; i < 4 && !this->error; i++) {
+                if (checksum[i] != trueChecksum[i]) {
+                    this->error = true;
+                }
+            }
+        }
     }
 
     char getAck() { return this->ack; }
@@ -44,6 +67,8 @@ public:
         for(int j = 0; buffer[j] != 0; j++)
             printf("%02X ", buffer[j]);
     }
+
+    bool isError() { return this->error; }
 };
 
 #endif

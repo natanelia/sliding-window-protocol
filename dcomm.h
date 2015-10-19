@@ -20,8 +20,9 @@
 #define BYTESIZE 256    /* The maximum value of a byte */
 #define MAXLEN 1024     /* Maximum messages length */
 
-#define BUFFER_SIZE 10
 #define WINDOW_SIZE 5
+#define BUFFER_SIZE (WINDOW_SIZE * 2)
+#define ACK_TIMEOUT 3
 
 typedef unsigned char Byte;
 
