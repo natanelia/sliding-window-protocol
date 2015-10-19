@@ -88,7 +88,12 @@ public:
         o[2] = STX;
         sprintf(o, "%s%s", o, this->data);
         sprintf(o, "%s%c", o, ETX);
-        sprintf(o, "%s%x", o, calc_crc16(o));
+
+        unsigned short c = calc_crc16(o, strlen(o));
+        char * a = new char[2];
+        a[0] = c & 0xff;
+        a[1] = (c >> 8) & 0xff;
+        sprintf(o, "%s%s", o, a);
         return o;
     }
 
@@ -97,7 +102,7 @@ public:
     void printBytes() {
         char * buffer = this->toBytes();
         for(int j = 0; buffer[j] != 0; j++)
-            printf("%02X ", buffer[j]);
+            printf("%02hhX ", buffer[j]);
         printf("\n");
     }
 };

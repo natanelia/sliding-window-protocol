@@ -56,7 +56,12 @@ public:
         char * o = new char[1 + 1 + 4];
         o[0] = this->ack;
         o[1] = this->frameNumber;
-        sprintf(o, "%s%x", o, calc_crc16(o));
+
+        unsigned short c = calc_crc16(o, strlen(o));
+        char * a = new char[2];
+        a[0] = c & 0xff;
+        a[1] = (c >> 8) & 0xff;
+        sprintf(o, "%s%s", o, a);
         return o;
     }
 
@@ -65,7 +70,7 @@ public:
     void printBytes() {
         char * buffer = this->toBytes();
         for(int j = 0; buffer[j] != 0; j++)
-            printf("%02X ", buffer[j]);
+            printf("%02hhX ", buffer[j]);
     }
 
     bool isError() { return this->error; }

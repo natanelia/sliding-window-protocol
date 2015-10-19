@@ -20,9 +20,9 @@ using namespace std;
 char sign[128];
 char contents[1000][128];
 char word[128];
-vector<TransmitterFrame> buffer;
-vector<TransmitterFrame> window;
-int neffFTP = 0, neffContents = 0, idxContents = 0, clientSocket;
+vector<TransmitterFrame *> buffer;
+vector<TransmitterFrame *> window;
+int neffContents = 0, idxContents = 0, clientSocket;
 struct sockaddr_in serverAddr;
 struct sockaddr_storage serverStorage;
 socklen_t addr_size;
@@ -31,8 +31,7 @@ socklen_t addr_size;
 void recvSign(int clientSocket) {
   while(1) {
     recvfrom(clientSocket,sign,5,0,NULL, NULL);
-    ReceiverFrame frame(sign); 
-    neffFTP++;
+    ReceiverFrame frame(sign);
     if(frame.isError()) {
     	cout << "ERROR " << frame.getFrameNumber() << endl;
     } else if(frame.getAck() == ACK) {
@@ -58,8 +57,8 @@ void configureSetting(char IP[], int portNum) {
 
 void fillBuffer() {
 	for (int i = 0; i < BUFFER_SIZE && idxContents < neffContents; i++) {
-		TransmitterFrame temp(i);
-		temp.setData(contents[idxContents], strlen(contents[idxContents]));
+		TransmitterFrame * temp = new TransmitterFrame(i+1);
+		temp->setData(contents[idxContents], strlen(contents[idxContents]));
 		buffer.push_back(temp);
 		idxContents++;
 	}
@@ -99,23 +98,23 @@ void readFileAndStore(char * NAMA_FILE) {
 	//masukin ke array pengiriman
 	if (!(ch == ' ' || ch=='\n' || ch=='\t' || ch=='\v' || ch=='\f' || ch=='\r')) {
 		for (int i = 0; i < nMsg; i++) {
-			contents[neffContents][i] = ch;
+			contents[neffContents][i] = word[i];
 		}
 		neffContents++;
 	}
+
 }
 
 // Mengirim pesan kepada receiver
-void sendSingleFrame(int clientSocket, TransmitterFrame frame) {
-	char* msg = frame.toBytes();
-	int msgLength = frame.getBytesLength(); 
+void sendSingleFrame(int clientSocket, TransmitterFrame * frame) {
+	char* msg = frame->toBytes();
+	int msgLength = frame->getBytesLength(); 
 	sendto(clientSocket,msg,msgLength,0,(struct sockaddr *)&serverAddr,addr_size);  	
 }
 
 void sendMultipleFrame() {
 	for (int i = 0; i < WINDOW_SIZE; i++) {
-
-		buffer[0].printBytes();
+		buffer[0]->printBytes();
 		window.push_back(buffer[0]);
 		buffer.erase(buffer.begin());
 	}
