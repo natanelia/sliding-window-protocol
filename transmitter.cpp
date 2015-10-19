@@ -1,120 +1,149 @@
-
+// Nama File : transmitter.cpp
+#include <stdio.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#include <netinet/in.h>
+#include <string.h>
+#include <arpa/inet.h>
+#include <string>
 #include <iostream>
 #include <fstream>
-#include <cstring>
-#include <stdio.h>
 #include <stdlib.h>
-#include <netdb.h>
-#include <sys/socket.h>
-#include <arpa/inet.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <pthread.h>
 #include "dcomm.h"
 #include "transmitterFrame.h"
-#include <stdio.h>
-
-#define BUFSIZE 2
+#include "receiverFrame.h"
+#include <vector>
 
 using namespace std;
-struct sockaddr_in myaddr;  /* our address */
-struct sockaddr_in remaddr; /* remote address */
-socklen_t addrlen = sizeof(remaddr);        /* length of addresses */
-int recvlen;            /* # bytes received */
-int fd;             /* our socket */
-char buf[BUFSIZE];  /* # bytes in acknowledgement message */
 
-void *childCodes(void *threadArgs) {
-    for (;;) {
-        recvlen = recvfrom(fd, buf, BUFSIZE, 0, (struct sockaddr *)&remaddr, &addrlen);
-        if (recvlen >=  0) {
-            buf[recvlen] = 0;   // expect a printable string - terminate it
-        }
+//Variable Global
+char sign[128];
+char* contents[1000];
+vector<TransmitterFrame> buffer;
+vector<TransmitterFrame> window;
+int neffFTP = 0, neffContents = 0, idxContents = 0, clientSocket;
+struct sockaddr_in serverAddr;
+struct sockaddr_storage serverStorage;
+socklen_t addr_size;
+
+// Menerima sign yang dikirim ke receiver, apakah XON atau XOFF
+void recvSign(int clientSocket) {
+  while(1) {
+    recvfrom(clientSocket,sign,5,0,NULL, NULL);
+
+    ReceiverFrame frame(sign); 
+    neffFTP++;
+    if(frame.isError()) {
+    	cout << "ERROR " << frame.getFrameNumber() << endl;
+    } else if(frame.getAck() == ACK) {
+    	window.erase(buffer.begin()+ (frame.getFrameNumber() - '0'));
+     	cout << "ACK " << frame.getFrameNumber() << endl;
+    } else if (frame.getAck() == NAK) {
+    	cout << "NAK " << frame.getFrameNumber() << endl;
     }
+  }
 }
 
-int main(int argc, char *argv[])
-{
-	if (argc <= 3) {
-		cout << "ERROR: No address, port, or file name" << endl;
-		return 0;
+void *childCodes(void *threadArgs) {
+	recvSign(clientSocket);
+}
+
+// Melakukan konfigurasi koneksi berdasarkan port dan IP tertentu
+void configureSetting(char IP[], int portNum) {
+	  serverAddr.sin_family = AF_INET;
+	  serverAddr.sin_port = htons(portNum);
+	  serverAddr.sin_addr.s_addr = inet_addr(IP);
+	  memset(serverAddr.sin_zero, '\0', sizeof serverAddr.sin_zero);  
+}
+
+void fillBuffer() {
+	for (int i = 0; i < BUFFER_SIZE && i < neffContents; i++) {
+		TransmitterFrame temp(i);
+		temp.setData(contents[idxContents], strlen(contents[idxContents]));
+		buffer.push_back(temp);
+		idxContents++;
 	}
+}
+
+// Membaca dari file dan mengirimkan paket kepada receiver
+void readFileAndStore(char * NAMA_FILE) {
+	ifstream fin(NAMA_FILE);
+    char ch, word[128];
+    int nMsg = 0;
+	fin >> noskipws >> ch;
+	while (!fin.eof()) {
+		sleep(1);
+		if (ch == ' ' && ch=='\n' && ch=='\t' && ch=='\r') {
+			contents[neffContents] = word;
+			neffContents++;
+			//reset word
+			for (int i = 0; i < 128; i++) {
+				word[i] = 0;
+			}
+			nMsg = 0;
+		} else {
+			word[nMsg++] = ch;
+		}
+		fin >> noskipws >>ch;
+	}
+	//masukin ke array pengiriman
+	if (!(ch == ' ' && ch=='\n' && ch=='\t' && ch=='\r')) {
+		contents[neffContents] = word;
+		neffContents++;
+	}
+}
+
+// Mengirim pesan kepada receiver
+void sendSingleFrame(int clientSocket, TransmitterFrame frame) {
+	char* msg = frame.toBytes();
+	int msgLength = frame.getBytesLength(); 
+	sendto(clientSocket,msg,msgLength,0,(struct sockaddr *)&serverAddr,addr_size);  	
+}
+
+void sendMultipleFrame() {
+	for (int i = 0; i < WINDOW_SIZE; i++) {
+		window.push_back(buffer[0]);
+		buffer.erase(buffer.begin());
+	}
+
+	//ngurus timeout buat resend
+	while (window.size() > 0) {
+		for (int i = 0; i < window.size(); i++) {
+			sendSingleFrame(clientSocket, window[i]);
+		}
+		sleep(ACK_TIMEOUT);
+	}
+}
+
+int main(int argc, char* argv[]) {
+  if (argc != 4) {
+    cout << "Usage : ./transmitter <IP address> <port number> <file name>" << endl;
+  } else {
+    int portNum;
+    char * NAMA_FILE;
 
     pthread_t childThread;
 
-	const string CLIENT_ADDRESS = argv[1];
-	const int CLIENT_PORT = atoi(argv[2]);
-	char *server = argv[1];
+    portNum = atoi(argv[2]);
+    NAMA_FILE = argv[3];
 
-	cout << "Membuat socket untuk koneksi ke " << CLIENT_ADDRESS << ":" << CLIENT_PORT << " ..." << endl;
+    // Membuat UDP socket
+    clientSocket = socket(PF_INET, SOCK_DGRAM, 0);
 
-	// membuat socket UDP
-	if ((fd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
-		cout << "ERROR: cannot create socket" << endl;
-		return 1;
-	}
+    cout << "Membuat socket untuk koneksi ke " << argv[1] << ":" << portNum << endl;
+    configureSetting(argv[1], portNum);
 
+    
+    // Inisialisasi ukuran variabel yang akan digunakan
+    addr_size = sizeof serverAddr;  
+	pthread_create(&childThread, NULL, childCodes, NULL);
 
-   /* memset((char *)&myaddr, 0, sizeof(myaddr));
-    myaddr.sin_family = AF_INET;
-    myaddr.sin_addr.s_addr = htonl(INADDR_ANY);
-    myaddr.sin_port = htons(0);
+    readFileAndStore(NAMA_FILE);
+    for (int i=0; i<neffContents; i=i+BUFFER_SIZE) {
+    	fillBuffer();
+    	sendMultipleFrame();
+    }
+  }
 
-    if (bind(fd, (struct sockaddr *)&myaddr, sizeof(myaddr)) < 0) {
-        perror("bind failed");
-        return 0;
-    }       */
-
-	// mendefinisikan address tujuan pengiriman
-	memset((char *) &remaddr, 0, sizeof(remaddr));
-	remaddr.sin_family = AF_INET;
-	remaddr.sin_port = htons(CLIENT_PORT);
-	if (inet_aton(server, &remaddr.sin_addr)==0) {
-		cout << "ERROR: socketing to destination failed" << endl;
-		return 1;
-	}
-
-	// membuat proses child buat baca XON/XOFF
-    pthread_create(&childThread, NULL, childCodes, NULL);
-
-    // proses parent
-    int c = 0;
-	fstream inputFile (argv[3], fstream::in);
-	if (inputFile.is_open())
-	{
-		char inputChar;
-		while (inputFile >> noskipws >> inputChar) {
-            usleep(10000);
-			if (buf[0] == XOFF) {
-				cout << "XOFF diterima." << endl;
-                cout << "Menunggu XON..." << endl;
-				while (buf[0] == XOFF) {
-                    usleep(10000);
-				}
-				cout << "XONN diterima." << endl;
-			}
-            TransmitterFrame tf(5);
-            tf.setData(&inputChar, 1);
-			if (sendto(fd, tf.toBytes(), tf.getBytesLength(), 0, (struct sockaddr *)&remaddr, addrlen) >= 0)
-                if (inputChar != '\n')
-                    printf("Mengirim packet ke-%02d: '%c' { ", ++c, inputChar);
-                else
-                    printf("Mengirim packet ke-%02d: '\\n' { ", ++c);
-                tf.printBytes();
-                printf("}\n");
-		}
-
-
-        char sendBuf[1];
-        sendBuf[0] = Endfile;
-        sendto(fd, sendBuf, 1, 0, (struct sockaddr *)&remaddr, addrlen);
-            //cout << "Mengirim byte ke-" << ++c << ": EOF" << endl;
-
-		inputFile.close();
-	} else {
-		cout << "Unable to open file" << endl;
-	};
-    close(fd);
-
-    return 0;
+  return 0;
 }
