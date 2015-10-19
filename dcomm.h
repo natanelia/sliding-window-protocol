@@ -16,12 +16,12 @@
 #define Endfile 26  /* End of file character */
 #define ESC 27      /* ESC key */
 
-/* XON/XOFF protocol */
-#define XON (0x11)
-#define XOFF (0x13)
 /* Const */
 #define BYTESIZE 256    /* The maximum value of a byte */
 #define MAXLEN 1024     /* Maximum messages length */
+
+#define BUFFER_SIZE 10
+#define WINDOW_SIZE 5
 
 typedef unsigned char Byte;
 

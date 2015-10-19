@@ -5,7 +5,6 @@ receiver:
 	rm -f receiver
 	g++ receiver.cpp -o receiver -pthread
 transmitter:
-	rm -f transmitter
 	g++ transmitter.cpp -o transmitter -pthread
 receiverTest:
 	./receiver 5555

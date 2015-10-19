@@ -14,6 +14,10 @@ private:
     bool error;
 
 public:
+    TransmitterFrame() {
+        // do nothing;
+    }
+
     TransmitterFrame(int frameNumber) {
         this->length = 0;
         this->frameNumber = frameNumber;
@@ -60,7 +64,7 @@ public:
         }
     }
 
-    char getFrameNumber() { return this->frameNumber; }
+    char getFrameNumber() const { return this->frameNumber; }
     void setFrameNumber(char newNumber) { this->frameNumber = newNumber; }
 
     char * getData() { return this->data; }
@@ -94,6 +98,7 @@ public:
         char * buffer = this->toBytes();
         for(int j = 0; buffer[j] != 0; j++)
             printf("%02X ", buffer[j]);
+        printf("\n");
     }
 };
 
