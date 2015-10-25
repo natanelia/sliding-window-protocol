@@ -12,7 +12,7 @@ private:
     bool error;
 
 public:
-    ReceiverFrame(int frameNumber) {
+    ReceiverFrame(char frameNumber) {
         this->frameNumber = frameNumber;
         this->error = false;
     }
@@ -26,19 +26,17 @@ public:
         this->setFrameNumber(frame[1]);
 
         if (!this->error) {
-            char checksum[5];
-            for (int i = 1 + 1 /* after ETX */; i < 1 + 1 + 5; i++) {
+            char checksum[6];
+            for (int i = 1 + 1 /* after ETX */; i < 1 + 1 + 4; i++) {
                 checksum[i - 2] = frame[i];
             }
-
             char * framex = this->toBytes();
             char trueChecksum[5];
-            for (int i = 1 + 1 /* after ETX */; i < 1 + 1 + 5; i++) {
+            for (int i = 1 + 1 /* after ETX */; i < 1 + 1 + 4; i++) {
                 trueChecksum[i - 2] = framex[i];
             }
-
             //check equality    
-            for (int i = 0; i < 4 && !this->error; i++) {
+            for (int i = 0; i < 6 && !this->error; i++) {
                 if (checksum[i] != trueChecksum[i]) {
                     this->error = true;
                 }

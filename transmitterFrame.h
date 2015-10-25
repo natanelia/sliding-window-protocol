@@ -5,6 +5,8 @@
 #include <stdio.h>
 #include "crc16.h"
 
+#define DEFAULT_LENGTH 0
+
 class TransmitterFrame {
 private:
 
@@ -15,11 +17,15 @@ private:
 
 public:
     TransmitterFrame() {
-        // do nothing;
+        error = false;
+        frameNumber = 0;
+        data = new char[DEFAULT_LENGTH+1];
+        length = DEFAULT_LENGTH;
     }
 
-    TransmitterFrame(int frameNumber) {
+    TransmitterFrame(char frameNumber) {
         this->length = 0;
+        this->data = new char[length + 1];
         this->frameNumber = frameNumber;
         this->error = false;
     }
@@ -36,12 +42,13 @@ public:
             ++dataLength;
             if (frame[i] == 0) this->error = true;
         }
-
-        char * data = new char[dataLength + 1];
+        this->length = dataLength + 1;
+        this->data = new char[dataLength + 1];
+        char * temp = new char[dataLength + 1];
         for (int i = 0; i < dataLength; ++i) {
-            data[i] = frame[i + 3];
+            temp[i] = frame[i + 3];
         }
-        this->setData(data, dataLength);
+        this->setData(temp, dataLength);
 
         if (!this->error) {
             char checksum[5]; 
@@ -64,16 +71,44 @@ public:
         }
     }
 
-    char getFrameNumber() const { return this->frameNumber; }
+    TransmitterFrame(const TransmitterFrame& frame) {
+        frameNumber = frame.frameNumber;
+        length = frame.length;
+        data = new char[length + 1];
+        for (int i = 0; i < length; i++) {
+            data[i] = frame.data[i];
+        }
+        error = frame.error;
+    }
+
+    TransmitterFrame& operator=(const TransmitterFrame& frame) {
+        frameNumber = frame.frameNumber;
+        length = frame.length;
+        delete [] data;
+        data = new char[length + 1];
+        for (int i = 0; i < length; i++) {
+            data[i] = frame.data[i];
+        }
+        error = frame.error;
+        return *this;
+    }
+
+    ~TransmitterFrame() {
+        delete [] data;
+    }
+    
+
+    int getFrameNumber() const { return int(this->frameNumber); }
     void setFrameNumber(char newNumber) { this->frameNumber = newNumber; }
 
     char * getData() { return this->data; }
 
     void setData(char * newData, int length) {
-        this->data = new char[length + 1];
-        for (int i = 0; i < length; ++i) {
+        int i;
+        for (i = 0; i < length; ++i) {
             this->data[i] = newData[i];
         }
+        data[i] = '\0';
         this->length = length;
     }
 
@@ -82,7 +117,7 @@ public:
     bool isError() { return this->error; }
 
     char * toBytes() {
-        char * o = new char[1 + 1 + 1 + this->length + 1 + 4];
+        char * o = new char[1 + 1 + 1 + 50 + 1 + 4];
         o[0] = SOH;
         o[1] = this->frameNumber;
         o[2] = STX;

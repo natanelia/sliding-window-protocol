@@ -1,4 +1,7 @@
 // Nama File : receiver.cpp
+// Deskripsi : membuat receiver untuk menerima pesan dengan menggunakan 
+// sliding window protocol dan selective repeat ARQ
+
 #include <stdio.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -18,47 +21,69 @@
 
 using namespace std;
 
-struct CompareFrame {
-    bool operator()(TransmitterFrame & frame1, TransmitterFrame & frame2) {
-        // return "true" if "p1" is ordered before "p2", for example:
-        return frame1.getFrameNumber() < frame2.getFrameNumber();
-    }
-};
+vector<TransmitterFrame> buffer;
 
-priority_queue<TransmitterFrame, vector<TransmitterFrame>, CompareFrame > buffer;
+// Menghapus buffer 
+void delBuffer(vector<TransmitterFrame> &buffer, int frameNum, TransmitterFrame& result) {
+	for(vector<TransmitterFrame>::iterator i=buffer.begin(); i<buffer.end(); i++) {
+		if(i->getFrameNumber() == frameNum) {
+			result = *i;
+			buffer.erase(i);
+			break;
+		}
+	}
+}
+
+// mengecek apakah ada frame yang frame numbernya valid ato nggak
+bool isElement(vector<TransmitterFrame> buffer, int frameNum) {
+	for(vector<TransmitterFrame>::iterator i=buffer.begin(); i<buffer.end(); i++) {
+		if(i->getFrameNumber() == frameNum) {
+			return true;
+		}
+	}	
+	return false;
+}
 
 // Kamus Global
 struct sockaddr_in serverAddr, clientAddr;
 struct sockaddr_storage serverStorage;
 socklen_t addr_size, client_addr_size;
 
-
+// Mengirim NAK
 void sendNAK(int frameNum, int udpSocket) {
-	ReceiverFrame ack(frameNum);
+	char temp = char(frameNum);
+	ReceiverFrame ack(temp);
 	ack.setAck(NAK);
+	printf("NAK %d\n", frameNum);
 	sendto(udpSocket,ack.toBytes(),ack.getBytesLength(),0,(struct sockaddr *)&serverStorage,addr_size);
 }
 
+// Mengirim ACK
 void sendACK(int frameNum, int udpSocket) {
-	ReceiverFrame ack(frameNum);
+	char temp = char(frameNum);
+	ReceiverFrame ack(temp);
 	ack.setAck(ACK);
+	printf("ACK %d\n", frameNum);
 	sendto(udpSocket,ack.toBytes(),ack.getBytesLength(),0,(struct sockaddr *)&serverStorage,addr_size);
 }
 
-
+// memproses message yang ada di buffer.
 void processMsg(int udpSocket) {
 	TransmitterFrame frame;
-	int num = 0;
-	while(!buffer.empty()) {
-		if(buffer.top().getFrameNumber() == num) {
-			frame = buffer.top();	// blm ada operator= 
-			buffer.pop();
-			num = (num+1) % (WINDOW_SIZE-1);
-			cout << frame.getData() << endl;
-		} 
+	int num = 1;
+	while(true) {
+		if(!buffer.empty()) {
+			if(isElement(buffer, num)) {
+				delBuffer(buffer, num, frame);
+				if(num > BUFFER_SIZE) num = 1;
+				else num++;
+				printf("Message ke-%d: %s\n", frame.getFrameNumber(), frame.getData());
+			} 		
+		}
 	}
 }
 
+// mengecek apakah seluruh elemen dari approved true
 bool isAllTrue(bool approved[], int length) {
 	for(int i=0; i<length; i++) {
 		if(!approved[i]) return false;
@@ -66,32 +91,34 @@ bool isAllTrue(bool approved[], int length) {
 	return true;
 }
 
+// mengeset semua nilai array approved dengan nilai false
 void setAllFalse(bool approved[], int length) {
-	for(int i=0; i<WINDOW_SIZE; i++) {
+	for(int i=0; i<length; i++) {
 		approved[i] = false;
 	}
 }
 
-// Menerima message
+// Menerima message dan mengirim ACK atau NAK bila frame benar atau salah
 void rcvMsg(int udpSocket) {
 	char msg[100];
-	bool approved[WINDOW_SIZE];
+	bool approved[WINDOW_SIZE+1];
 	setAllFalse(approved, WINDOW_SIZE);
 	while (true) {
-		recvfrom(udpSocket,msg,100,0,(struct sockaddr *)&serverStorage, &addr_size);
+		recvfrom(udpSocket,msg,300,0,(struct sockaddr *)&serverStorage, &addr_size);
 		TransmitterFrame frame(msg);
-		if(frame.isError()) {
-			sendNAK(frame.getFrameNumber(), udpSocket);
-		} else {
+		if(!frame.isError()) {
 			sendACK(frame.getFrameNumber(), udpSocket);
 			if(!approved[frame.getFrameNumber()]) {
-				buffer.push(frame);
+				buffer.push_back(frame);
 				approved[frame.getFrameNumber()] = true;
-				if(isAllTrue(approved, WINDOW_SIZE)) {
-					setAllFalse(approved, WINDOW_SIZE);
+				if(isAllTrue(approved, WINDOW_SIZE+1)) {
+					setAllFalse(approved, WINDOW_SIZE+1);
 				}
 			}
+		} else {
+			sendNAK(frame.getFrameNumber(), udpSocket);
 		}
+		
 	}
 } 
 
@@ -124,6 +151,5 @@ int main (int argc, char* argv[]) {
 		th1.join();
 		th2.join();
 	}
-	
 	return 0;
 }
