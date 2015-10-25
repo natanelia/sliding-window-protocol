@@ -1,4 +1,7 @@
 // Nama File : transmitter.cpp
+// Deskripsi : membuat transmitter untuk mengirimkan pesan dengan menggunakan 
+// sliding window protocol dan selective repeat ARQ
+
 #include <stdio.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -42,9 +45,7 @@ int countSentBuffer = 0;
 int countPendingACK = 0;
 mutex mtx;
 
-
-
-// Mengirim pesan kepada receiver
+// Mengirim satu frame kepada receiver
 void sendSingleFrame(int clientSocket, TransmitterFrame frame) {
 	char* msg = frame.toBytes();
 	int msgLength = frame.getBytesLength(); 
@@ -56,15 +57,15 @@ void sendSingleFrame(int clientSocket, TransmitterFrame frame) {
 	sendto(clientSocket,msg,300,0,(struct sockaddr *)&serverAddr,addr_size);	
 }
 
-int findFrame(int i) {
-	for (int j = 0; j < window.size(); j++) {
-		if (window[j].getFrameNumber() == i) {
-			return j;
-		}
+// Mencari indeks dengan frame number elemen window sama dengan i
+vector<TransmitterFrame>:: iterator findFrame(int num) {
+	for(vector<TransmitterFrame>::iterator it=window.begin(); it < window.end(); it++) {
+		if(it->getFrameNumber() == num) return it;
 	}
-	return -999;
+	return window.begin();
 }
 
+// Mencari indeks dengan frame number elemen timeBuffer sama dengan num
 vector<timeFrame>:: iterator findTimeFrame(int num) {
 	for(vector<timeFrame>::iterator it=timeBuffer.begin(); it < timeBuffer.end(); it++) {
 		if(it->frameNum == num) return it;
@@ -73,6 +74,7 @@ vector<timeFrame>:: iterator findTimeFrame(int num) {
 }
 
 // Menerima sign yang dikirim ke receiver, apakah ACK atau NAK
+// Melakukan aksi sesuai dengan sign yang diterima
 void recvSign(int clientSocket) {
   while(1) {
     recvfrom(clientSocket,sign,10,0,NULL, NULL);
@@ -95,23 +97,25 @@ void recvSign(int clientSocket) {
 	    } else {
 	    	countPendingACK++;
 	    	mtx.lock();
-	    	window.erase(window.begin() + findFrame(frame.getFrameNumber()));
+	    	window.erase(findFrame(frame.getFrameNumber()));
 	    	mtx.unlock();
 	    }
     } else if (frame.getAck() == NAK) {
     	printf("NAK %d\n",frame.getFrameNumber());
-    	sendSingleFrame(clientSocket, window[findFrame(frame.getFrameNumber())]);
+    	sendSingleFrame(clientSocket, *findFrame(frame.getFrameNumber()));
     }
   }
 }
 
+// Mengecek timeout
+// Jika timeout, data dikirim ulang
 void checkTimeout() {
 	while (true) {
 		if (!timeBuffer.empty()) {
 			for (vector<timeFrame>::iterator it=timeBuffer.begin(); it>timeBuffer.end(); it++) {
 				int now = time(0);
 				if (((it->waktu - now)/double(CLOCKS_PER_SEC)*1000) > ACK_TIMEOUT*1000) {
-					sendSingleFrame(clientSocket, findFrame(it->frameNum));
+					sendSingleFrame(clientSocket, *findFrame(it->frameNum));
 					timeBuffer.erase(it);
 				}
 			}
@@ -129,6 +133,7 @@ void configureSetting(char IP[], int portNum) {
 	  memset(serverAddr.sin_zero, '\0', sizeof serverAddr.sin_zero);  
 }
 
+// Mengisi 'buffer' dengan frame yang siap dikirim
 void fillBuffer() {
 	for (int i = 0; i < BUFFER_SIZE && idxContents < neffContents; i++) {
 		TransmitterFrame temp(i+1);
@@ -138,7 +143,7 @@ void fillBuffer() {
 	}
 }
 
-// Membaca dari file dan mengirimkan paket kepada receiver
+// Membaca dari file dan memasukkan kata kepada array
 void readFileAndStore(char * NAMA_FILE) {
 	ifstream fin(NAMA_FILE);
     char ch;
@@ -179,8 +184,8 @@ void readFileAndStore(char * NAMA_FILE) {
 
 }
 
+// Melakukan inisialisasi
 void childCode() {
-    // Inisialisasi
     fillBuffer();
     
     mtx.lock();
@@ -217,9 +222,11 @@ int main(int argc, char* argv[]) {
 	    readFileAndStore(NAMA_FILE);
 		thread th1(recvSign, clientSocket);
 		thread th2(childCode);
+		thread th3(checkTimeout);
 
 		th1.join();
 		th2.join();
+		th3.join();
 	}
 
 
