@@ -1,7 +1,4 @@
 // Nama File : receiver.cpp
-// Deskripsi : membuat receiver untuk menerima pesan dengan menggunakan 
-// sliding window protocol dan selective repeat ARQ
-
 #include <stdio.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -23,7 +20,6 @@ using namespace std;
 
 vector<TransmitterFrame> buffer;
 
-// Menghapus buffer 
 void delBuffer(vector<TransmitterFrame> &buffer, int frameNum, TransmitterFrame& result) {
 	for(vector<TransmitterFrame>::iterator i=buffer.begin(); i<buffer.end(); i++) {
 		if(i->getFrameNumber() == frameNum) {
@@ -34,7 +30,6 @@ void delBuffer(vector<TransmitterFrame> &buffer, int frameNum, TransmitterFrame&
 	}
 }
 
-// mengecek apakah ada frame yang frame numbernya valid ato nggak
 bool isElement(vector<TransmitterFrame> buffer, int frameNum) {
 	for(vector<TransmitterFrame>::iterator i=buffer.begin(); i<buffer.end(); i++) {
 		if(i->getFrameNumber() == frameNum) {
@@ -49,41 +44,45 @@ struct sockaddr_in serverAddr, clientAddr;
 struct sockaddr_storage serverStorage;
 socklen_t addr_size, client_addr_size;
 
-// Mengirim NAK
+
 void sendNAK(int frameNum, int udpSocket) {
 	char temp = char(frameNum);
 	ReceiverFrame ack(temp);
 	ack.setAck(NAK);
 	printf("NAK %d\n", frameNum);
+	//ack.printBytes();
+	//cout << endl;
 	sendto(udpSocket,ack.toBytes(),ack.getBytesLength(),0,(struct sockaddr *)&serverStorage,addr_size);
 }
 
-// Mengirim ACK
 void sendACK(int frameNum, int udpSocket) {
 	char temp = char(frameNum);
 	ReceiverFrame ack(temp);
 	ack.setAck(ACK);
 	printf("ACK %d\n", frameNum);
+	//ack.printBytes();
+	//cout << endl;
 	sendto(udpSocket,ack.toBytes(),ack.getBytesLength(),0,(struct sockaddr *)&serverStorage,addr_size);
 }
 
-// memproses message yang ada di buffer.
+
 void processMsg(int udpSocket) {
 	TransmitterFrame frame;
 	int num = 1;
 	while(true) {
 		if(!buffer.empty()) {
+			//cout << "TOP " << buffer.top().getFrameNumber() << " v " << num << endl;
 			if(isElement(buffer, num)) {
+				//printf("Test\n");
 				delBuffer(buffer, num, frame);
 				if(num > BUFFER_SIZE) num = 1;
 				else num++;
-				printf("Message ke-%d: %s\n", frame.getFrameNumber(), frame.getData());
+				printf("%s\n", frame.getData());
 			} 		
 		}
 	}
 }
 
-// mengecek apakah seluruh elemen dari approved true
 bool isAllTrue(bool approved[], int length) {
 	for(int i=0; i<length; i++) {
 		if(!approved[i]) return false;
@@ -91,25 +90,32 @@ bool isAllTrue(bool approved[], int length) {
 	return true;
 }
 
-// mengeset semua nilai array approved dengan nilai false
 void setAllFalse(bool approved[], int length) {
 	for(int i=0; i<length; i++) {
 		approved[i] = false;
 	}
 }
 
-// Menerima message dan mengirim ACK atau NAK bila frame benar atau salah
+// Menerima message
 void rcvMsg(int udpSocket) {
 	char msg[100];
 	bool approved[WINDOW_SIZE+1];
 	setAllFalse(approved, WINDOW_SIZE);
 	while (true) {
 		recvfrom(udpSocket,msg,300,0,(struct sockaddr *)&serverStorage, &addr_size);
+		for(int i=0; i<strlen(msg); i++) printf("%02hhX ", msg[i]);
+		printf("\n");
 		TransmitterFrame frame(msg);
+		//printf("Frame : "); frame.printBytes();
 		if(!frame.isError()) {
 			sendACK(frame.getFrameNumber(), udpSocket);
+			//cout << frame.getData() <<endl;
 			if(!approved[frame.getFrameNumber()]) {
+				//cout << frame.getData() <<endl;
 				buffer.push_back(frame);
+				//printf("Frame Number : ");
+				//printf("%d\n", buffer.top().getFrameNumber()); 
+				//cout << buffer.size() << endl;
 				approved[frame.getFrameNumber()] = true;
 				if(isAllTrue(approved, WINDOW_SIZE+1)) {
 					setAllFalse(approved, WINDOW_SIZE+1);
